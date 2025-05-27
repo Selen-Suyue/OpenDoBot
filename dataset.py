@@ -1,0 +1,276 @@
+import xml.etree.ElementTree as ET
+import os
+import glob # For finding files matching a pattern
+from PIL import Image # For loading images
+import torch
+from torch.utils.data import Dataset
+import torchvision.transforms as transforms # Optional, for image transformations
+
+# --- Your provided playback parser ---
+def parse_playback_file(filepath):
+    """
+    解析 playback 文件并提取 X, Y, Z, R 数据。
+
+    Args:
+        filepath (str): .playback 文件的路径。
+
+    Returns:
+        list: 包含每个时刻数据的字典列表，如果出错则返回 None。
+              每个字典格式为: {'时刻索引': int, 'X': float, 'Y': float, 'Z': float, 'R': float}
+    """
+    if not os.path.exists(filepath):
+        print(f"错误: 文件 '{filepath}' 不存在。")
+        return None
+
+    all_moments_data = []
+    try:
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        moment_elements = [
+            el for el in root
+            if el.tag.startswith('row') and el.tag[3:].isdigit()
+        ]
+
+        if not moment_elements:
+            print(f"警告: 在文件 '{filepath}' 中没有找到 'rowX' 格式的时刻元素。")
+            return []
+
+        for i, moment_element in enumerate(moment_elements):
+            current_moment_values = {'时刻索引': i}
+            keys_items = {'X': 'item_2', 'Y': 'item_3', 'Z': 'item_4', 'R': 'item_5'}
+            valid_moment = True
+            for key, item_tag in keys_items.items():
+                element = moment_element.find(item_tag)
+                if element is not None and element.text is not None:
+                    try:
+                        current_moment_values[key] = float(element.text)
+                    except ValueError:
+                        current_moment_values[key] = None
+                        print(f"警告: 时刻 {i}, 文件 '{filepath}', {item_tag} ('{element.text}') 无法转换为浮点数。")
+                        valid_moment = False # Mark moment as potentially problematic if any value is None
+                else:
+                    current_moment_values[key] = None
+                    valid_moment = False # Mark moment as potentially problematic
+
+            # Only add if all essential coordinates are present (X, Y, Z, R)
+            # You might want to adjust this check based on how critical each coordinate is
+            if all(current_moment_values.get(k) is not None for k in ['X', 'Y', 'Z', 'R']):
+                all_moments_data.append(current_moment_values)
+            else:
+                print(f"警告: 时刻 {i} 在文件 '{filepath}' 中缺少一个或多个坐标数据，已跳过。数据: {current_moment_values}")
+
+
+        return all_moments_data
+
+    except ET.ParseError as e:
+        print(f"错误: 解析 XML 文件 '{filepath}' 失败。错误信息: {e}")
+        return None
+    except Exception as e:
+        print(f"处理文件 '{filepath}' 时发生未知错误: {e}")
+        return None
+
+# --- PyTorch Dataset Class ---
+class RobotImitationDataset(Dataset):
+    def __init__(self, root_dir, transform=None):
+        """
+        Args:
+            root_dir (str): 数据集的根目录 (包含 'demos' 和 'imgdata' 子目录).
+            transform (callable, optional): 应用于图像样本的可选变换.
+        """
+        self.root_dir = root_dir
+        self.demos_dir = os.path.join(root_dir, "demos")
+        self.img_dir = os.path.join(root_dir, "imgdata")
+        self.transform = transform
+        self.samples = []
+
+        self._load_samples()
+
+    def _load_samples(self):
+        """
+        加载所有有效样本。
+        一个样本包含: {当前任务id，当前时间步图像路径，当前机器人位置，机器人的动作}
+        """
+        playback_files = glob.glob(os.path.join(self.demos_dir, "*.playback"))
+
+        for playback_file_path in playback_files:
+            filename = os.path.basename(playback_file_path)
+            # 提取 task_id 和 demo_id, e.g., from "1_1.playback" -> task_demo_id = "1_1"
+            # "initial.playback" might be special, handle if needed or it will be skipped
+            # if no images like initial_X_Y.jpg exist.
+            if filename == "initial.playback": # Example: skipping initial.playback
+                print(f"跳过特殊文件: {filename}")
+                continue
+            
+            try:
+                task_demo_id = filename.split('.')[0] # "1_1"
+                task_id_str = task_demo_id.split('_')[0] # "1"
+            except IndexError:
+                print(f"警告: 无法从文件名 '{filename}' 解析 task_id 和 demo_id。已跳过。")
+                continue
+
+            robot_positions_data = parse_playback_file(playback_file_path)
+
+            if not robot_positions_data: # Handles None or empty list
+                print(f"警告: 未能从 '{playback_file_path}' 加载机器人位置数据，或数据为空。")
+                continue
+
+            num_timesteps = len(robot_positions_data)
+            if num_timesteps == 0:
+                continue
+
+            for t in range(num_timesteps):
+                current_pos_data = robot_positions_data[t]
+                
+                # 确保所有坐标都已成功解析
+                if any(current_pos_data.get(coord) is None for coord in ['X', 'Y', 'Z', 'R']):
+                    print(f"警告: 在 {task_demo_id} 的时间步 {t} 缺少机器人位置数据。已跳过此时间步。")
+                    continue
+
+                current_robot_pos = [
+                    current_pos_data['X'],
+                    current_pos_data['Y'],
+                    current_pos_data['Z'],
+                    current_pos_data['R']
+                ]
+
+                # 构造图像路径
+                # 图像名称格式: TASKID_DEMOID_TIMESTEP.jpg, e.g., 1_1_0.jpg
+                # playback 的 '时刻索引' (t)直接对应图像的 TIMESTEP
+                img_filename = f"{task_demo_id}_{t}.jpg"
+                img_path = os.path.join(self.img_dir, img_filename)
+
+                if not os.path.exists(img_path):
+                    print(f"警告: 图像文件 '{img_path}' 不存在，对应 {task_demo_id} 的时间步 {t}。已跳过此样本。")
+                    continue
+
+                # 确定动作 (下一时间步的位置)
+                if t < num_timesteps - 1:
+                    next_pos_data = robot_positions_data[t+1]
+                    if any(next_pos_data.get(coord) is None for coord in ['X', 'Y', 'Z', 'R']):
+                        print(f"警告: 在 {task_demo_id} 的时间步 {t+1} (作为动作) 缺少机器人位置数据。已跳过此样本。")
+                        continue
+                    action = [
+                        next_pos_data['X'],
+                        next_pos_data['Y'],
+                        next_pos_data['Z'],
+                        next_pos_data['R']
+                    ]
+                else: # 最后一个时间步，动作是保持当前位置
+                    action = current_robot_pos
+
+                self.samples.append({
+                    "task_id": task_id_str, # "1"
+                    "task_demo_id": task_demo_id, # "1_1" for debugging or more specific task identification
+                    "image_path": img_path,
+                    "current_pos": current_robot_pos,
+                    "action": action,
+                    "timestep": t # For debugging
+                })
+        
+        print(f"成功加载 {len(self.samples)} 个样本。")
+
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        sample_info = self.samples[idx]
+
+        task_id = sample_info["task_id"]
+        image_path = sample_info["image_path"]
+        current_pos = torch.tensor(sample_info["current_pos"], dtype=torch.float32)
+        action = torch.tensor(sample_info["action"], dtype=torch.float32)
+
+        try:
+            image = Image.open(image_path).convert('RGB') # Ensure 3 channels
+        except FileNotFoundError:
+            print(f"错误: 在 __getitem__ 中找不到图像文件: {image_path}")
+            # Handle error appropriately, e.g., return a placeholder or raise exception
+            # For now, let's try to return the next valid sample or raise error
+            # This should ideally be caught during _load_samples, but as a safeguard:
+            if idx + 1 < len(self.samples):
+                return self.__getitem__(idx + 1)
+            else:
+                raise FileNotFoundError(f"Image not found: {image_path} and no more samples.")
+        except Exception as e:
+            print(f"错误: 加载图像时出错 {image_path}: {e}")
+            if idx + 1 < len(self.samples):
+                return self.__getitem__(idx + 1)
+            else:
+                raise RuntimeError(f"Error loading image: {image_path} and no more samples.")
+
+
+        if self.transform:
+            image = self.transform(image)
+        
+        # 返回的样本
+        # task_id 可以是字符串或者转换为数值型ID，取决于你的模型需求
+        return {
+            "task_id": task_id, # e.g., "1"
+            "image": image,
+            "current_pos": current_pos,
+            "action": action
+        }
+
+# --- 辅助函数 (从你的参考程序中提取并修改) ---
+def print_extracted_data(data_list):
+    if not data_list:
+        print("未能提取到任何时刻的数据，或数据列表为空。")
+        return
+    print("\n提取并组织的机器人坐标数据：")
+    for moment_data in data_list:
+        print(f"--- 时刻 {moment_data['时刻索引']} ---")
+        print(f"  X: {moment_data.get('X', '未找到或无效')}")
+        print(f"  Y: {moment_data.get('Y', '未找到或无效')}")
+        print(f"  Z: {moment_data.get('Z', '未找到或无效')}")
+        print(f"  R: {moment_data.get('R', '未找到或无效')}")
+
+# --- 主程序示例 ---
+if __name__ == "__main__":
+
+    # --- 测试 Dataset ---
+    print("--- 测试 RobotImitationDataset ---")
+    # 定义一个简单的图像变换 (例如, 转换为 Tensor)
+    # 在实际应用中，你可能需要更复杂的变换，如调整大小、归一化等
+    img_transforms = transforms.Compose([
+        transforms.Resize((224, 224)), # 示例变换：调整大小
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # 常用归一化
+    ])
+
+    robot_dataset = RobotImitationDataset(root_dir="data", transform=img_transforms)
+
+    print(f"\n数据集中的样本数量: {len(robot_dataset)}")
+
+    if len(robot_dataset) > 0:
+        print("\n获取第一个样本:")
+        sample = robot_dataset[0]
+        print(f"  任务 ID: {sample['task_id']}")
+        print(f"  图像 Tensor 形状: {sample['image'].shape}") # (C, H, W)
+        print(f"  当前机器人位置: {sample['current_pos']}")
+        print(f"  机器人动作: {sample['action']}")
+
+        if len(robot_dataset) >=3 and robot_dataset.samples[2]["task_demo_id"] == "1_1" and robot_dataset.samples[2]["timestep"] == 2:
+            last_step_sample = robot_dataset[2]
+            print("\n获取 '1_1' demo 的最后一个时间步样本 (索引可能变化):")
+            print(f"  任务 ID: {last_step_sample['task_id']}")
+            print(f"  图像 Tensor 形状: {last_step_sample['image'].shape}")
+            print(f"  当前机器人位置: {last_step_sample['current_pos']}")
+            print(f"  机器人动作 (应与当前位置相同): {last_step_sample['action']}")
+            assert torch.equal(last_step_sample['current_pos'], last_step_sample['action']), "最后一个时间步的动作不等于当前位置！"
+            print("  最后一个时间步的动作验证通过。")
+        else:
+            print("未找到1_1 demo的第三个时间步样本，或样本顺序不同，跳过最后一步验证。")
+            if len(robot_dataset) > 0:
+                 print("Dataset samples content for debugging order:")
+                 for i, s_info in enumerate(robot_dataset.samples):
+                     print(f"  Sample {i}: task_demo_id={s_info['task_demo_id']}, timestep={s_info['timestep']}")
+
+
+    else:
+        print("数据集中没有样本。请检查数据路径和文件格式。")
+    
+    print("------------------------------")
