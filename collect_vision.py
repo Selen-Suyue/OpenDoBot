@@ -1,13 +1,13 @@
 import cv2
 import os
 
-IMG_SAVE_PATH = "imgdata"
+IMG_SAVE_PATH = "data/imgdata"
 
 if not os.path.exists(IMG_SAVE_PATH):
     os.makedirs(IMG_SAVE_PATH)
     print(f"目录 '{IMG_SAVE_PATH}' 已创建。")
 
-cap = cv2.VideoCapture(1) # 尝试使用摄像头索引1，如果不行，请尝试0
+cap = cv2.VideoCapture(0) # 尝试使用摄像头索引1，如果不行，请尝试0
 
 # 检查是否成功打开了相机
 if not cap.isOpened():

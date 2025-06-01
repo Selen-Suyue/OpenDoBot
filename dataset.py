@@ -5,6 +5,7 @@ from PIL import Image # For loading images
 import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms # Optional, for image transformations
+import torchvision.transforms as T
 
 # --- Your provided playback parser ---
 def parse_playback_file(filepath):
@@ -71,25 +72,32 @@ def parse_playback_file(filepath):
 
 # --- PyTorch Dataset Class ---
 class RobotImitationDataset(Dataset):
-    def __init__(self, root_dir, transform=None):
-        """
-        Args:
-            root_dir (str): 数据集的根目录 (包含 'demos' 和 'imgdata' 子目录).
-            transform (callable, optional): 应用于图像样本的可选变换.
-        """
+    def __init__(self, root_dir):
         self.root_dir = root_dir
         self.demos_dir = os.path.join(root_dir, "demos")
         self.img_dir = os.path.join(root_dir, "imgdata")
-        self.transform = transform
+        self.transform = transforms.Compose([
+        transforms.Resize((256, 256)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) 
+        ])
+        self.aug = T.Compose([
+                T.RandomPerspective(distortion_scale=0.2),
+                T.RandomResizedCrop((256,256), scale=(0.6, 1.0), ratio=(1.0, 1.0)),
+                T.RandomApply([
+                T.ColorJitter(
+                brightness=0.4,
+                contrast=0.4,
+                saturation=0.2,
+                hue=0.1
+                )
+                ], p=0.4)
+                ])
         self.samples = []
 
         self._load_samples()
 
     def _load_samples(self):
-        """
-        加载所有有效样本。
-        一个样本包含: {当前任务id，当前时间步图像路径，当前机器人位置，机器人的动作}
-        """
         playback_files = glob.glob(os.path.join(self.demos_dir, "*.playback"))
 
         for playback_file_path in playback_files:
@@ -203,11 +211,10 @@ class RobotImitationDataset(Dataset):
                 raise RuntimeError(f"Error loading image: {image_path} and no more samples.")
 
 
-        if self.transform:
-            image = self.transform(image)
         
-        # 返回的样本
-        # task_id 可以是字符串或者转换为数值型ID，取决于你的模型需求
+        image = self.aug(image)
+        image = self.transform(image)
+        
         return {
             "task_id": task_id, # e.g., "1"
             "image": image,
@@ -231,17 +238,8 @@ def print_extracted_data(data_list):
 # --- 主程序示例 ---
 if __name__ == "__main__":
 
-    # --- 测试 Dataset ---
-    print("--- 测试 RobotImitationDataset ---")
-    # 定义一个简单的图像变换 (例如, 转换为 Tensor)
-    # 在实际应用中，你可能需要更复杂的变换，如调整大小、归一化等
-    img_transforms = transforms.Compose([
-        transforms.Resize((224, 224)), # 示例变换：调整大小
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # 常用归一化
-    ])
 
-    robot_dataset = RobotImitationDataset(root_dir="data", transform=img_transforms)
+    robot_dataset = RobotImitationDataset(root_dir="data")
 
     print(f"\n数据集中的样本数量: {len(robot_dataset)}")
 
