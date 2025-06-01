@@ -5,7 +5,7 @@ import torchvision.transforms as transforms
 from termcolor import cprint
 from torch.autograd import Variable
 from einops import reduce
-from transformers import BertConfig,BertModel
+from transformers import BertConfig,BertModel,BertTokenizer
 
 class OpenDoBot(nn.Module):
     def __init__(
@@ -19,22 +19,49 @@ class OpenDoBot(nn.Module):
         self.Transformer =  BertModel(config)
         self.pos_proj = nn.Linear(4,256)
         self.act_proj = nn.Linear(256,4)
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.bert_text = BertModel.from_pretrained('bert-base-uncased')
+        self.text_proj = nn.Linear(768, 256)  
 
-    def forward(self, qpos, imgtop, lan=None, actions=None):
+    def forward(self, qpos, imgtop, id=None,lan=None, actions=None):
+        
         if actions is not None:
             vis = self.ResNet(imgtop)
             pos = self.pos_proj(qpos)
-            condition = torch.stack([pos,vis],dim=1)
+
+            if id is not None:
+                if id[0] == 1:
+                    lan = ["pick the black cube"]*id.shape[0]
+                if id[0] == 2:
+                    lan = ["pick the green cube"]*id.shape[0]
+                if id[0] == 3:
+                    lan = ["pick the yellow cube"]*id.shape[0]
+
+            text_tokens = self.tokenizer(lan, padding=True, truncation=True,
+                                     return_tensors="pt").to(qpos.device)
+            text_feat = self.bert_text(**text_tokens).last_hidden_state[:, 0, :]  
+            text_feat = self.text_proj(text_feat)  
+
+            condition = torch.stack([pos,vis,text_feat],dim=1)
             action_pred = self.Transformer(inputs_embeds = condition).last_hidden_state[:,0,:]
             action_pred = self.act_proj(action_pred)
             loss = F.mse_loss(action_pred, actions, reduction='none')
             loss = reduce(loss, 'b ... -> b (...)', 'mean')
             loss = loss.mean()
             return loss
+        
         else:
             vis = self.ResNet(imgtop)
-            pos = self.pos_proj(qpos)/100.0
-            condition = torch.stack([pos,vis],dim=1)
+            pos = self.pos_proj(qpos)
+            if lan is not None:
+                lan = [lan]*pos.shape[0]
+
+            text_tokens = self.tokenizer(lan, padding=True, truncation=True,
+                                     return_tensors="pt").to(qpos.device)
+            text_feat = self.bert_text(**text_tokens).last_hidden_state[:, 0, :]  
+            text_feat = self.text_proj(text_feat)
+
+            condition = torch.stack([pos,vis,text_feat],dim=1)
             action_pred = self.Transformer(inputs_embeds = condition).last_hidden_state[:,0,:]
             action_pred = self.act_proj(action_pred)
             return action_pred

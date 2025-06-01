@@ -278,7 +278,6 @@ class RobotImitationDataset(Dataset):
     def get_stats(self):
         return self.pose_stats
     
-# --- 自定义 collate 函数 ---
 def custom_collate(batch):
     task_ids = [int(item['task_id']) for item in batch]
     task_ids_tensor = torch.tensor(task_ids, dtype=torch.long).unsqueeze(1)  # (batch_size, 1)

@@ -35,9 +35,12 @@ def load_model(model_path, framework):
 
 def predict(model, image, qpos, framework):
     action = None
-    qpos = np.array(qpos, dtype=np.float32).reshape(1, -1) 
+    qpos = np.array(qpos,dtype=np.float32).reshape(1, -1) 
     qpos = torch.from_numpy(qpos)
-    action = model(qpos,image)
+    qpos = qpos.to(device)
+    image = image.to(device)
+    image = image.unsqueeze(0)
+    action = model(qpos,image,lan="pick the black cube")
     return action
 
 # --- 主程序 ---
