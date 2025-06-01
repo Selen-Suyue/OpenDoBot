@@ -221,24 +221,11 @@ class RobotImitationDataset(Dataset):
 
 # --- 自定义 collate 函数 ---
 def custom_collate(batch):
-    """
-    自定义collate函数，将所有数据转换为指定形状的张量
-    
-    返回:
-        dict: 包含以下键的字典:
-            - task_id: 形状为 (batch_size, 1) 的整数张量
-            - image: 形状为 (batch_size, 3, 256, 256) 的浮点张量
-            - current_pos: 形状为 (batch_size, 4) 的浮点张量
-            - action: 形状为 (batch_size, 4) 的浮点张量
-    """
-    # 处理任务ID: 字符串 -> 整数 -> 张量
     task_ids = [int(item['task_id']) for item in batch]
     task_ids_tensor = torch.tensor(task_ids, dtype=torch.long).unsqueeze(1)  # (batch_size, 1)
     
-    # 处理图像: 已经是(3, 256, 256)的张量，直接堆叠
     images = torch.stack([item['image'] for item in batch])  # (batch_size, 3, 256, 256)
     
-    # 处理位置和动作: 已经是(4)的张量，直接堆叠
     current_positions = torch.stack([item['current_pos'] for item in batch])  # (batch_size, 4)
     actions = torch.stack([item['action'] for item in batch])  # (batch_size, 4)
     
