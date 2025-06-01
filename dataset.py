@@ -69,6 +69,60 @@ def parse_playback_file(filepath):
         print(f"处理文件 '{filepath}' 时发生未知错误: {e}")
         return None
 
+def cal_stats(data):
+    if not data:
+        return {}
+    
+    # 提取所有数据点
+    all_X = [d[0] for d in data]
+    all_Y = [d[1] for d in data]
+    all_Z = [d[2] for d in data]
+    all_R = [d[3] for d in data]
+    
+    # 计算每个维度的统计量
+    stats = {
+        'X': {'mean': sum(all_X)/len(all_X), 'std': (sum((x - sum(all_X)/len(all_X))**2 for x in all_X)/len(all_X))**0.5},
+        'Y': {'mean': sum(all_Y)/len(all_Y), 'std': (sum((y - sum(all_Y)/len(all_Y))**2 for y in all_Y)/len(all_Y))**0.5},
+        'Z': {'mean': sum(all_Z)/len(all_Z), 'std': (sum((z - sum(all_Z)/len(all_Z))**2 for z in all_Z)/len(all_Z))**0.5},
+        'R': {'mean': sum(all_R)/len(all_R), 'std': (sum((r - sum(all_R)/len(all_R))**2 for r in all_R)/len(all_R))**0.5}
+    }
+    
+    # 处理标准差为0的情况（避免除以0）
+    for dim in ['X', 'Y', 'Z', 'R']:
+        if stats[dim]['std'] == 0:
+            stats[dim]['std'] = 1.0
+    
+    return stats
+
+
+def normalize_data(origin_pose, stats):
+    if len(origin_pose) != 4:
+        raise ValueError("位置列表必须包含 4 个值 [X, Y, Z, R]")
+
+    normalized_pose = [
+        (origin_pose[0] - stats['X']['mean']) / stats['X']['std'],
+        (origin_pose[1] - stats['Y']['mean']) / stats['Y']['std'],
+        (origin_pose[2] - stats['Z']['mean']) / stats['Z']['std'],
+        (origin_pose[3] - stats['R']['mean']) / stats['R']['std']
+    ]
+
+    return normalized_pose
+
+
+def denormalize_data(normalized_pose, stats):
+    if len(normalized_pose) != 4:
+        raise ValueError("位置列表必须包含 4 个值 [X, Y, Z, R]")
+    
+    denormalized_pose = [
+        normalized_pose[0] * stats['X']['std'] + stats['X']['mean'],
+        normalized_pose[1] * stats['Y']['std'] + stats['Y']['mean'],
+        normalized_pose[2] * stats['Z']['std'] + stats['Z']['mean'],
+        normalized_pose[3] * stats['R']['std'] + stats['R']['mean']
+    ]
+    
+    return denormalized_pose
+
+
 # --- PyTorch Dataset Class ---
 class RobotImitationDataset(Dataset):
     def __init__(self, root_dir):
@@ -97,6 +151,7 @@ class RobotImitationDataset(Dataset):
 
     def _load_samples(self):
         playback_files = glob.glob(os.path.join(self.demos_dir, "*.playback"))
+        all_poses = []
 
         for playback_file_path in playback_files:
             filename = os.path.basename(playback_file_path)
@@ -139,6 +194,8 @@ class RobotImitationDataset(Dataset):
                     current_pos_data['R']
                 ]
 
+                all_poses.append(current_robot_pos)
+
                 # 构造图像路径
                 # 图像名称格式: TASKID_DEMOID_TIMESTEP.jpg, e.g., 1_1_0.jpg
                 # playback 的 '时刻索引' (t)直接对应图像的 TIMESTEP
@@ -173,6 +230,8 @@ class RobotImitationDataset(Dataset):
                     "timestep": t # For debugging
                 })
         
+        self.stats = cal_stats(all_poses)
+        
         print(f"成功加载 {len(self.samples)} 个样本。")
 
     def __len__(self):
@@ -186,8 +245,8 @@ class RobotImitationDataset(Dataset):
 
         task_id = sample_info["task_id"]
         image_path = sample_info["image_path"]
-        current_pos = torch.tensor(sample_info["current_pos"], dtype=torch.float32)
-        action = torch.tensor(sample_info["action"], dtype=torch.float32)
+        current_pos = torch.tensor(normalize_data(sample_info["current_pos"], self.stats), dtype=torch.float32)
+        action = torch.tensor(normalize_data(sample_info["action"], self.stats), dtype=torch.float32)
 
         try:
             image = Image.open(image_path).convert('RGB') # Ensure 3 channels
@@ -218,7 +277,10 @@ class RobotImitationDataset(Dataset):
             "current_pos": current_pos,
             "action": action
         }
-
+    
+    def get_stats(self):
+        return self.stats
+    
 # --- 自定义 collate 函数 ---
 def custom_collate(batch):
     task_ids = [int(item['task_id']) for item in batch]

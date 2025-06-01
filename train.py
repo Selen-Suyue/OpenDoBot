@@ -2,7 +2,7 @@ import torch
 import os
 from policy import OpenDoBot
 from torch.utils.data import DataLoader
-from dataset import RobotImitationDataset, custom_collate
+from dataset import RobotImitationDataset, custom_collate, denormalize_data
 from transformers import get_cosine_schedule_with_warmup
 
 from tqdm import tqdm
