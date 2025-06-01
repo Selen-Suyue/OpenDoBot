@@ -86,7 +86,7 @@ def cal_stats(data):
         'Z': {'mean': sum(all_Z)/len(all_Z), 'std': (sum((z - sum(all_Z)/len(all_Z))**2 for z in all_Z)/len(all_Z))**0.5},
         'R': {'mean': sum(all_R)/len(all_R), 'std': (sum((r - sum(all_R)/len(all_R))**2 for r in all_R)/len(all_R))**0.5}
     }
-    
+
     # 处理标准差为0的情况（避免除以0）
     for dim in ['X', 'Y', 'Z', 'R']:
         if stats[dim]['std'] == 0:
@@ -146,12 +146,17 @@ class RobotImitationDataset(Dataset):
                 )
                 ], p=0.4)
                 ])
+        self.pose_stats =  {
+            'X': {'mean': -10.81992619047619, 'std': 38.21256246008921}, 
+            'Y': {'mean': 208.8902984126984, 'std': 39.440654665607966}, 
+            'Z': {'mean': -5.283230158730158, 'std': 27.04021482166495}, 
+            'R': {'mean': 92.70010793650793, 'std': 9.232440537648042},
+        }
         self.samples = []
         self._load_samples()
 
     def _load_samples(self):
         playback_files = glob.glob(os.path.join(self.demos_dir, "*.playback"))
-        all_poses = []
 
         for playback_file_path in playback_files:
             filename = os.path.basename(playback_file_path)
@@ -194,8 +199,6 @@ class RobotImitationDataset(Dataset):
                     current_pos_data['R']
                 ]
 
-                all_poses.append(current_robot_pos)
-
                 # 构造图像路径
                 # 图像名称格式: TASKID_DEMOID_TIMESTEP.jpg, e.g., 1_1_0.jpg
                 # playback 的 '时刻索引' (t)直接对应图像的 TIMESTEP
@@ -230,8 +233,6 @@ class RobotImitationDataset(Dataset):
                     "timestep": t # For debugging
                 })
         
-        self.stats = cal_stats(all_poses)
-        
         print(f"成功加载 {len(self.samples)} 个样本。")
 
     def __len__(self):
@@ -245,8 +246,8 @@ class RobotImitationDataset(Dataset):
 
         task_id = sample_info["task_id"]
         image_path = sample_info["image_path"]
-        current_pos = torch.tensor(normalize_data(sample_info["current_pos"], self.stats), dtype=torch.float32)
-        action = torch.tensor(normalize_data(sample_info["action"], self.stats), dtype=torch.float32)
+        current_pos = torch.tensor(normalize_data(sample_info["current_pos"], self.pose_stats), dtype=torch.float32)
+        action = torch.tensor(normalize_data(sample_info["action"], self.pose_stats), dtype=torch.float32)
 
         try:
             image = Image.open(image_path).convert('RGB') # Ensure 3 channels
