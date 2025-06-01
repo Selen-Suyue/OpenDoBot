@@ -78,8 +78,6 @@ def main():
 
                 print(f"获取到的 qpos: {qpos}")
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-                # 2. 将 RGB NumPy 数组转换为 PIL Image 对象
                 frame = Image.fromarray(frame_rgb)
 
                 frame = aug(frame)

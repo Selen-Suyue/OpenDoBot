@@ -160,9 +160,6 @@ class RobotImitationDataset(Dataset):
 
         for playback_file_path in playback_files:
             filename = os.path.basename(playback_file_path)
-            # 提取 task_id 和 demo_id, e.g., from "1_1.playback" -> task_demo_id = "1_1"
-            # "initial.playback" might be special, handle if needed or it will be skipped
-            # if no images like initial_X_Y.jpg exist.
             if filename == "initial.playback": # Example: skipping initial.playback
                 print(f"跳过特殊文件: {filename}")
                 continue
@@ -187,7 +184,6 @@ class RobotImitationDataset(Dataset):
             for t in range(num_timesteps):
                 current_pos_data = robot_positions_data[t]
                 
-                # 确保所有坐标都已成功解析
                 if any(current_pos_data.get(coord) is None for coord in ['X', 'Y', 'Z', 'R']):
                     print(f"警告: 在 {task_demo_id} 的时间步 {t} 缺少机器人位置数据。已跳过此时间步。")
                     continue
@@ -280,7 +276,7 @@ class RobotImitationDataset(Dataset):
         }
     
     def get_stats(self):
-        return self.stats
+        return self.pose_stats
     
 # --- 自定义 collate 函数 ---
 def custom_collate(batch):
