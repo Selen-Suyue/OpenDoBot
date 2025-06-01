@@ -15,7 +15,7 @@ class OpenDoBot(nn.Module):
         self.ResNet = ResNet18()
         
         config = BertConfig(hidden_size=256, num_attention_heads=8, 
-                                               intermediate_size=256 * 4, num_hidden_layers=2)
+                                               intermediate_size=256 * 4, num_hidden_layers=3)
         self.Transformer =  BertModel(config)
         self.pos_proj = nn.Linear(4,256)
         self.act_proj = nn.Linear(256,4)
@@ -23,11 +23,11 @@ class OpenDoBot(nn.Module):
     def forward(self, qpos, imgtop, lan=None, actions=None):
         if actions is not None:
             vis = self.ResNet(imgtop)
-            pos = self.pos_proj(qpos)
+            pos = self.pos_proj(qpos)/100.0
             condition = torch.stack([pos,vis],dim=1)
             action_pred = self.Transformer(inputs_embeds = condition).last_hidden_state[:,0,:]
             action_pred = self.act_proj(action_pred)
-            loss = F.mse_loss(action_pred, actions, reduction='none')
+            loss = F.mse_loss(action_pred, actions/100.0, reduction='none')
             loss = reduce(loss, 'b ... -> b (...)', 'mean')
             loss = loss.mean()
             return loss

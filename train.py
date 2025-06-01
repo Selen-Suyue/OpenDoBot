@@ -8,9 +8,9 @@ from transformers import get_cosine_schedule_with_warmup
 from tqdm import tqdm
 
 def train():
-    num_epochs=10
-    batch_size=32
-    save_epochs=1
+    num_epochs=100
+    batch_size=64
+    save_epochs=10
     ckpt_dir = 'logs'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
