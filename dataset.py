@@ -3,7 +3,7 @@ import os
 import glob # For finding files matching a pattern
 from PIL import Image # For loading images
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as transforms # Optional, for image transformations
 import torchvision.transforms as T
 
@@ -60,7 +60,6 @@ def parse_playback_file(filepath):
             else:
                 print(f"警告: 时刻 {i} 在文件 '{filepath}' 中缺少一个或多个坐标数据，已跳过。数据: {current_moment_values}")
 
-
         return all_moments_data
 
     except ET.ParseError as e:
@@ -94,7 +93,6 @@ class RobotImitationDataset(Dataset):
                 ], p=0.4)
                 ])
         self.samples = []
-
         self._load_samples()
 
     def _load_samples(self):
@@ -177,7 +175,6 @@ class RobotImitationDataset(Dataset):
         
         print(f"成功加载 {len(self.samples)} 个样本。")
 
-
     def __len__(self):
         return len(self.samples)
 
@@ -222,51 +219,80 @@ class RobotImitationDataset(Dataset):
             "action": action
         }
 
-# --- 辅助函数 (从你的参考程序中提取并修改) ---
-def print_extracted_data(data_list):
-    if not data_list:
-        print("未能提取到任何时刻的数据，或数据列表为空。")
-        return
-    print("\n提取并组织的机器人坐标数据：")
-    for moment_data in data_list:
-        print(f"--- 时刻 {moment_data['时刻索引']} ---")
-        print(f"  X: {moment_data.get('X', '未找到或无效')}")
-        print(f"  Y: {moment_data.get('Y', '未找到或无效')}")
-        print(f"  Z: {moment_data.get('Z', '未找到或无效')}")
-        print(f"  R: {moment_data.get('R', '未找到或无效')}")
+# --- 自定义 collate 函数 ---
+def custom_collate(batch):
+    """
+    自定义collate函数，将所有数据转换为指定形状的张量
+    
+    返回:
+        dict: 包含以下键的字典:
+            - task_id: 形状为 (batch_size, 1) 的整数张量
+            - image: 形状为 (batch_size, 3, 256, 256) 的浮点张量
+            - current_pos: 形状为 (batch_size, 4) 的浮点张量
+            - action: 形状为 (batch_size, 4) 的浮点张量
+    """
+    # 处理任务ID: 字符串 -> 整数 -> 张量
+    task_ids = [int(item['task_id']) for item in batch]
+    task_ids_tensor = torch.tensor(task_ids, dtype=torch.long).unsqueeze(1)  # (batch_size, 1)
+    
+    # 处理图像: 已经是(3, 256, 256)的张量，直接堆叠
+    images = torch.stack([item['image'] for item in batch])  # (batch_size, 3, 256, 256)
+    
+    # 处理位置和动作: 已经是(4)的张量，直接堆叠
+    current_positions = torch.stack([item['current_pos'] for item in batch])  # (batch_size, 4)
+    actions = torch.stack([item['action'] for item in batch])  # (batch_size, 4)
+    
+    return {
+        'task_id': task_ids_tensor,
+        'image': images,
+        'current_pos': current_positions,
+        'action': actions
+    }
 
-# --- 主程序示例 ---
+# --- 主程序 ---
 if __name__ == "__main__":
-
-
+    # 创建数据集实例
     robot_dataset = RobotImitationDataset(root_dir="data")
-
-    print(f"\n数据集中的样本数量: {len(robot_dataset)}")
-
+    print(f"数据集中的样本数量: {len(robot_dataset)}")
+    
     if len(robot_dataset) > 0:
-        print("\n获取第一个样本:")
-        sample = robot_dataset[0]
-        print(f"  任务 ID: {sample['task_id']}")
-        print(f"  图像 Tensor 形状: {sample['image'].shape}") # (C, H, W)
-        print(f"  当前机器人位置: {sample['current_pos']}")
-        print(f"  机器人动作: {sample['action']}")
+        batch_size = len(robot_dataset)
+        dataloader = DataLoader(
+            robot_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=custom_collate,
+            num_workers=0
+        )
+        
+        full_batch = next(iter(dataloader))
+        
+        # 打印批处理结果
+        print("\n完整批处理结果:")
+        print(f"  任务ID张量形状: {full_batch['task_id'].shape} (数据类型: {full_batch['task_id'].dtype})")
+        print(f"  图像张量形状: {full_batch['image'].shape} (数据类型: {full_batch['image'].dtype})")
+        print(f"  当前位置张量形状: {full_batch['current_pos'].shape} (数据类型: {full_batch['current_pos'].dtype})")
+        print(f"  动作张量形状: {full_batch['action'].shape} (数据类型: {full_batch['action'].dtype})")
+        
+        sample1_size, sample2_size = 0, 0
+        for sample_idx in range(batch_size):
+            if (full_batch['task_id'][sample_idx].item() == 1):
+                sample1_size += 1
+            elif (full_batch['task_id'][sample_idx].item() == 2):
+                sample2_size += 1
+            else:
+                print(f"警告: 未知任务 ID {full_batch['task_id'][sample_idx].item()} 在样本索引 {sample_idx} 中。")
 
-        if len(robot_dataset) >=3 and robot_dataset.samples[2]["task_demo_id"] == "1_1" and robot_dataset.samples[2]["timestep"] == 2:
-            last_step_sample = robot_dataset[2]
-            print("\n获取 '1_1' demo 的最后一个时间步样本 (索引可能变化):")
-            print(f"  任务 ID: {last_step_sample['task_id']}")
-            print(f"  图像 Tensor 形状: {last_step_sample['image'].shape}")
-            print(f"  当前机器人位置: {last_step_sample['current_pos']}")
-            print(f"  机器人动作 (应与当前位置相同): {last_step_sample['action']}")
-            assert torch.equal(last_step_sample['current_pos'], last_step_sample['action']), "最后一个时间步的动作不等于当前位置！"
-            print("  最后一个时间步的动作验证通过。")
-        else:
-            print("未找到1_1 demo的第三个时间步样本，或样本顺序不同，跳过最后一步验证。")
-            if len(robot_dataset) > 0:
-                 print("Dataset samples content for debugging order:")
-                 for i, s_info in enumerate(robot_dataset.samples):
-                     print(f"  Sample {i}: task_demo_id={s_info['task_demo_id']}, timestep={s_info['timestep']}")
+        print(f"  任务 ID 1 的样本数量: {sample1_size}")
+        print(f"  任务 ID 2 的样本数量: {sample2_size}")
 
+        for sample_idx in range(10):
+            print(f"批次中第{sample_idx}个样本的详细信息:")
+            print(f"  任务 ID: {full_batch['task_id'][sample_idx].item()} (原始值)")
+            print(f"  图像 Tensor 形状: {full_batch['image'][sample_idx].shape}")
+            print(f"  当前机器人位置: {full_batch['current_pos'][sample_idx]}")
+            print(f"  机器人动作: {full_batch['action'][sample_idx]}")
+            
 
     else:
         print("数据集中没有样本。请检查数据路径和文件格式。")
