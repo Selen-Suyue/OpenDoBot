@@ -9,22 +9,22 @@ from tqdm import tqdm
 
 def train():
     num_epochs=100
-    batch_size=64
-    save_epochs=10
-    ckpt_dir = 'logs'
+    batch_size=48
+    save_epochs=20
+    ckpt_dir = 'logs/layer_4'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     robot_dataset = RobotImitationDataset(root_dir='data')
     dataloader = DataLoader(
         robot_dataset,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=True,
         collate_fn=custom_collate,
         num_workers=4
     )
 
     policy = OpenDoBot().to(device)
-    optimizer = torch.optim.AdamW(policy.parameters(), lr=5e-4, betas=(0.9, 0.999), weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(policy.parameters(), lr=1e-4, betas=(0.9, 0.999), weight_decay=1e-5)
     total_steps = len(dataloader) * num_epochs
     warmup_steps = int(0.1 * total_steps)
     lr_scheduler = get_cosine_schedule_with_warmup(

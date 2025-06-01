@@ -15,13 +15,15 @@ class OpenDoBot(nn.Module):
         self.ResNet = ResNet18()
         
         config = BertConfig(hidden_size=256, num_attention_heads=8, 
-                                               intermediate_size=256 * 4, num_hidden_layers=3)
+                                               intermediate_size=256 * 4, num_hidden_layers=4)
         self.Transformer =  BertModel(config)
         self.pos_proj = nn.Linear(4,256)
         self.act_proj = nn.Linear(256,4)
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.bert_text = BertModel.from_pretrained('bert-base-uncased')
-        self.text_proj = nn.Linear(768, 256)  
+        self.text_proj = nn.Linear(768, 256)
+        for param in self.bert_text.parameters():
+            param.requires_grad = False  
 
     def forward(self, qpos, imgtop, id=None,lan=None, actions=None):
         
