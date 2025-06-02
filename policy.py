@@ -19,15 +19,22 @@ class OpenDoBot(nn.Module):
         self.Transformer =  BertModel(config)
         self.pos_proj = nn.Linear(4,256)
         self.act_proj = nn.Linear(256,4)
+
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.bert_text = BertModel.from_pretrained('bert-base-uncased')
         self.text_proj = nn.Linear(768, 256)
-        for param in self.bert_text.parameters():
-            param.requires_grad = False  
+
+        self.midas = torch.hub.load("intel-isl/MiDaS", "DPT_Large")
+        for param in self.bert_text.parameters() and self.midas.parameters():
+            param.requires_grad = False
+        
 
     def forward(self, qpos, imgtop, id=None,lan=None, actions=None):
         
         if actions is not None:
+            depth = self.midas(imgtop)
+            depth = depth.unsqueeze(1)
+            imgtop = torch.cat([imgtop, depth], dim=1)
             vis = self.ResNet(imgtop)
             pos = self.pos_proj(qpos)
 
@@ -44,7 +51,8 @@ class OpenDoBot(nn.Module):
             text_feat = self.bert_text(**text_tokens).last_hidden_state[:, 0, :]  
             text_feat = self.text_proj(text_feat)  
 
-            condition = torch.stack([pos,vis,text_feat],dim=1)
+            cls=torch.zeros_like(pos).to(pos.device)
+            condition = torch.stack([cls, pos, vis, text_feat],dim=1)
             action_pred = self.Transformer(inputs_embeds = condition).last_hidden_state[:,0,:]
             action_pred = self.act_proj(action_pred)
             loss = F.mse_loss(action_pred, actions, reduction='none')
@@ -53,6 +61,9 @@ class OpenDoBot(nn.Module):
             return loss
         
         else:
+            depth = self.midas(imgtop)
+            depth = depth.unsqueeze(1)
+            imgtop = torch.cat([imgtop, depth], dim=1)
             vis = self.ResNet(imgtop)
             pos = self.pos_proj(qpos)
             if lan is not None:
@@ -63,7 +74,8 @@ class OpenDoBot(nn.Module):
             text_feat = self.bert_text(**text_tokens).last_hidden_state[:, 0, :]  
             text_feat = self.text_proj(text_feat)
 
-            condition = torch.stack([pos,vis,text_feat],dim=1)
+            cls=torch.zeros_like(pos).to(pos.device)
+            condition = torch.stack([cls, pos, vis, text_feat],dim=1)
             action_pred = self.Transformer(inputs_embeds = condition).last_hidden_state[:,0,:]
             action_pred = self.act_proj(action_pred)
             return action_pred
@@ -129,7 +141,7 @@ class ResNet18(nn.Module):
 
     def __init__(self):
         super(ResNet18, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3)
+        self.conv1 = nn.Conv2d(4, 64, kernel_size=7, stride=2, padding=3)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         self.layer1 = nn.Sequential(ResNetBasicBlock(64, 64, 1),

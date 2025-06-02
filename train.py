@@ -8,10 +8,10 @@ from transformers import get_cosine_schedule_with_warmup
 from tqdm import tqdm
 
 def train():
-    num_epochs=100
-    batch_size=48
+    num_epochs=200
+    batch_size=24
     save_epochs=20
-    ckpt_dir = 'logs/layer_4'
+    ckpt_dir = 'logs/depth'
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     robot_dataset = RobotImitationDataset(root_dir='data')
@@ -44,6 +44,11 @@ def train():
             qpos = data['current_pos'].to(device)
             img = data['image'].to(device)
             task_id = data['task_id'].to(device)
+
+            noise_mask = torch.rand(qpos.size(0), device=qpos.device) < (1-(epoch+1)/num_epochs)
+            noise = torch.randn_like(qpos) 
+            qpos[noise_mask] = noise[noise_mask]
+
             loss = policy(qpos, img, id=task_id,actions=action)
             loss.backward()
             optimizer.step()

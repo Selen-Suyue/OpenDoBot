@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 import torchvision.transforms as T
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "logs\layer_4\DSP_policy_epoch_40.ckpt"
+MODEL_PATH = "logs\depth\DSP_policy_epoch_200.ckpt"
 FRAMEWORK = "pytorch"
 
 # 图像预处理
