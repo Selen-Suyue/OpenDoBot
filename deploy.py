@@ -1,14 +1,14 @@
 import cv2
 import numpy as np
 import time
-from policy import OpenDoBot
+from policy import OpenDoBot,OpenDoBot_v2
 from PIL import Image
 import torch
 import torchvision.transforms as transforms
 import torchvision.transforms as T
 # -0.4019,149.6464,12.2097,90.1539
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "logs\depth\DSP_policy_epoch_200.ckpt"
+MODEL_PATH = "logs\depth_v2\linux_depth_policy_epoch_1000.ckpt"
 FRAMEWORK = "pytorch"
 
 # 图像预处理
@@ -47,7 +47,7 @@ def denormalize_data(pose, stats):
 def load_model(model_path, framework):
     model = None
     if framework == "pytorch":
-        model = OpenDoBot()
+        model = OpenDoBot_v2()
         model.load_state_dict(torch.load(model_path, map_location=device))
         model.to(device)
         model.eval()
