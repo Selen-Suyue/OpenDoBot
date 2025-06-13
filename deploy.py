@@ -6,7 +6,7 @@ from PIL import Image
 import torch
 import torchvision.transforms as transforms
 import torchvision.transforms as T
-
+# -0.4019,149.6464,12.2097,90.1539
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_PATH = "logs\depth\DSP_policy_epoch_200.ckpt"
 FRAMEWORK = "pytorch"
@@ -70,6 +70,8 @@ def main():
     print("\n摄像头已启动。按 'q' 键退出。按 's' 进行推理。")
 
     try:
+        lang = None
+        qpos = None
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -83,23 +85,19 @@ def main():
                 print("退出程序。")
                 break
             elif key == ord('s'):
-                while True:
-                    try:
-                        qpos_str = input("请输入 4 个 qpos 值 (用逗号分隔): ")
-                        qpos = [float(x.strip()) for x in qpos_str.split(',')]
-                        if len(qpos) != 4:
-                            raise ValueError
-                        break
-                    except:
-                        print("输入无效，请重新输入。")
-
-                lang = input("请输入语言指令（例如 'pick the green cube'）: ").strip()
-                print(f"使用语言指令: {lang}")
-                print(f"当前输入的 qpos: {qpos}")
+                if qpos is None:
+                    qpos=[-0.4019,149.6464,12.2097,90.1539]
+                else:
+                    qpos = action
+                    
+                if lang is None:
+                    lang = input("请输入语言指令（例如 'pick the green cube'）: ").strip()
+                    print(f"使用语言指令: {lang}")
 
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frame_pil = Image.fromarray(frame_rgb)
                 frame_pil = aug(frame_pil)
+                
                 frame_tensor = transform(frame_pil)
 
                 action = predict(model, frame_tensor, qpos, lang, FRAMEWORK)
