@@ -83,7 +83,7 @@ def main():
     if (state == dType.DobotConnect.DobotConnect_NoError):
         dType.SetQueuedCmdClear(api)
         dType.SetEndEffectorSuctionCup(api, 1, 1, isQueued = 1)
-        dType.SetHOMEParams(api, 200, 200, 200, 200, isQueued = 1)
+        dType.SetHOMEParams(api, -0.4019,149.6464,12.2097,90.1539, isQueued = 1)
         dType.SetHOMECmd(api, temp = 0, isQueued = 1)
 
         try:
