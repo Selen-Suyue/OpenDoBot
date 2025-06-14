@@ -1,6 +1,6 @@
 import torch
 import os
-from policy import OpenDoBot_v2
+from policy import OpenDoBot, OpenDoBot_v2
 from torch.utils.data import DataLoader
 from dataset import RobotImitationDataset, custom_collate, denormalize_data
 from transformers import get_cosine_schedule_with_warmup
@@ -23,7 +23,7 @@ def train():
         num_workers=4
     )
 
-    policy = OpenDoBot_v2().to(device)
+    policy = OpenDoBot().to(device)
     optimizer = torch.optim.AdamW(policy.parameters(), lr=1e-4, betas=(0.9, 0.999), weight_decay=1e-5)
     total_steps = len(dataloader) * num_epochs
     warmup_steps = int(0.1 * total_steps)
@@ -45,7 +45,7 @@ def train():
             img = data['image'].to(device)
             task_id = data['task_id'].to(device)
 
-            noise_mask = torch.rand(qpos.size(0), device=qpos.device) < 0.2
+            noise_mask = torch.rand(qpos.size(0), device=qpos.device) < 0.3
             noise = torch.randn_like(qpos) 
             qpos[noise_mask] = noise[noise_mask]
 
