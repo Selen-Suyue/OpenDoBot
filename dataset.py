@@ -122,6 +122,17 @@ def denormalize_data(normalized_pose, stats):
     
     return denormalized_pose
 
+def cropbox(image, height_ratio=0.55, width_ratio=0.70):
+    original_width, original_height = image.size
+    left = original_width * (1 - width_ratio)
+    top = original_height * (1 - height_ratio)
+    right = original_width * 0.75
+    bottom = original_height
+
+    crop_box = (int(left), int(top), int(right), int(bottom))
+
+    cropped_image = image.crop(crop_box)
+    return cropped_image
 
 # --- PyTorch Dataset Class ---
 class RobotImitationDataset(Dataset):
@@ -136,7 +147,7 @@ class RobotImitationDataset(Dataset):
         ])
         self.aug = T.Compose([
                 T.RandomPerspective(distortion_scale=0.2),
-                T.RandomResizedCrop((256,256), scale=(0.6, 1.0), ratio=(1.0, 1.0)),
+                T.RandomResizedCrop((256,256), scale=(0.9, 1.0), ratio=(1.0, 1.0)),
                 T.RandomApply([
                 T.ColorJitter(
                 brightness=0.4,
@@ -144,7 +155,7 @@ class RobotImitationDataset(Dataset):
                 saturation=0.2,
                 hue=0.1
                 )
-                ], p=0.4)
+                ], p=0.3)
                 ])
         self.pose_stats =  {
             'X': {'mean': -10.81992619047619, 'std': 38.21256246008921}, 
@@ -195,9 +206,6 @@ class RobotImitationDataset(Dataset):
                     current_pos_data['R']
                 ]
 
-                # 构造图像路径
-                # 图像名称格式: TASKID_DEMOID_TIMESTEP.jpg, e.g., 1_1_0.jpg
-                # playback 的 '时刻索引' (t)直接对应图像的 TIMESTEP
                 img_filename = f"{task_demo_id}_{t}.jpg"
                 img_path = os.path.join(self.img_dir, img_filename)
 
@@ -249,9 +257,6 @@ class RobotImitationDataset(Dataset):
             image = Image.open(image_path).convert('RGB') # Ensure 3 channels
         except FileNotFoundError:
             print(f"错误: 在 __getitem__ 中找不到图像文件: {image_path}")
-            # Handle error appropriately, e.g., return a placeholder or raise exception
-            # For now, let's try to return the next valid sample or raise error
-            # This should ideally be caught during _load_samples, but as a safeguard:
             if idx + 1 < len(self.samples):
                 return self.__getitem__(idx + 1)
             else:
@@ -264,7 +269,7 @@ class RobotImitationDataset(Dataset):
                 raise RuntimeError(f"Error loading image: {image_path} and no more samples.")
 
 
-        
+        image = cropbox(image)
         image = self.aug(image)
         image = self.transform(image)
         

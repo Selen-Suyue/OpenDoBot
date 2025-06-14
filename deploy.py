@@ -7,10 +7,11 @@ import torch
 import torchvision.transforms as transforms
 import torchvision.transforms as T
 import lib.magician.DobotDllType as dType
+from dataset import cropbox
 # -0.4019,149.6464,12.2097,90.1539
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "logs\depth_v2\linux_depth_policy_epoch_1000.ckpt"
+MODEL_PATH = "logs\depth_v2\linux_depth_policy_epoch_400.ckpt"
 FRAMEWORK = "pytorch"
 
 CON_STR = {
@@ -112,13 +113,14 @@ def main():
 
                     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                     frame_pil = Image.fromarray(frame_rgb)
+                    frame_pil = cropbox(frame_pil)
                     frame_pil = aug(frame_pil)
                     
                     frame_tensor = transform(frame_pil)
 
                     action = predict(model, frame_tensor, qpos, lang, FRAMEWORK)
                     print(f"预测动作（反标准化后）: {action}")
-                    dType.SetPTPCmd(api, dType.PTPMode.PTPMOVLXYZMode, action[0], action[1], action[2], action[3])
+                    dType.SetPTPCmd(api, dType.PTPMode.PTPMOVLXYZMode, action[0], action[1], action[2]-4.0, action[3])
             
         finally:
             dType.SetQueuedCmdClear(api)
